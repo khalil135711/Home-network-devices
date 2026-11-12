@@ -1,0 +1,7 @@
+# Local device list (can contain camera passwords in stream URLs)
+devices.json
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
