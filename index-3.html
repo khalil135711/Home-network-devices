@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home network devices</title>
+<style>
+:root{--bg:#eceff1;--card:#fff;--ink:#1b2430;--mute:#64707d;--line:#d5dbe0;--acc:#2540d9;--on:#1b9a5f;--off:#c2473b}
+@media (prefers-color-scheme:dark){:root{--bg:#12171d;--card:#1b222b;--ink:#e6ebf0;--mute:#8d99a6;--line:#2c3541;--acc:#7b93ff;--on:#3fc68a;--off:#ee7a6e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--line)}
+h1{margin:0;font-size:22px;font-weight:650;letter-spacing:-.01em}
+.sub{color:var(--mute);font-size:13px}
+button,select,input{font:inherit;color:inherit}
+button{border:1px solid var(--line);background:var(--card);padding:8px 14px;border-radius:8px;cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+body.dark-btn button.p{color:#111}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.bar{height:3px;background:var(--line)}.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+.tools{display:flex;flex-wrap:wrap;gap:8px;padding:14px 24px;align-items:center}
+.tab{border-radius:99px;padding:5px 14px}.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+main{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;padding:0 24px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.card.cam{grid-column:span 2}
+@media (max-width:560px){.card.cam{grid-column:auto}}
+.top{display:flex;gap:10px;align-items:center}
+.ico{font-size:24px;width:40px;height:40px;display:grid;place-items:center;background:var(--bg);border-radius:8px}
+.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--off);margin-left:auto;flex:none}.dot.on{background:var(--on)}
+.meta{color:var(--mute);font-size:13px;word-break:break-all}
+.chips{display:flex;flex-wrap:wrap;gap:4px}.chips span{font-size:12px;border:1px solid var(--line);border-radius:5px;padding:0 6px;color:var(--mute)}
+.feed{width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;object-fit:cover;display:block}
+.note{aspect-ratio:16/9;display:grid;place-items:center;text-align:center;padding:10px;background:var(--bg);border-radius:8px;color:var(--mute);font-size:13px}
+.acts{display:flex;gap:6px;margin-top:auto;padding-top:6px}.acts button{padding:4px 10px;font-size:13px}.acts a{color:var(--acc);font-size:13px;align-self:center;margin-right:auto}
+.empty{grid-column:1/-1;text-align:center;color:var(--mute);padding:60px 0}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);width:min(420px,92vw);padding:20px}
+dialog::backdrop{background:#0008}
+label{display:block;font-size:13px;color:var(--mute);margin-top:12px}
+input,select{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin-top:4px}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Home network devices</h1><div class="sub" id="status">Loading…</div></div>
+  <div style="display:flex;gap:8px"><button id="add">Add device</button><button class="p" id="scanBtn">Scan network</button></div>
+</header>
+<div class="bar"><i id="prog"></i></div>
+<div class="tools" id="tabs"></div>
+<main id="grid"></main>
+
+<dialog id="dlg"><form method="dialog" id="f">
+  <h2 id="dt" style="margin:0 0 4px;font-size:18px">Add device</h2>
+  <label>Name<input id="n" placeholder="Living room camera"></label>
+  <label>IP address<input id="ip" placeholder="192.168.1.50"></label>
+  <label>Type<select id="t"></select></label>
+  <label id="sl">Camera stream URL<input id="s" placeholder="http://192.168.1.50/mjpeg  or  rtsp://user:pass@192.168.1.50:554/stream1"></label>
+  <div class="row"><button type="button" id="cancel">Cancel</button><button class="p" id="save" type="button">Save device</button></div>
+</form></dialog>
+
+<script>
+const TYPES={camera:["📹","Cameras"],light:["💡","Lights"],plug:["🔌","Plugs"],media:["🔊","Media"],hub:["🧠","Hubs"],sensor:["📡","Sensors"],other:["❔","Other"]};
+let data=[],filter="all",editId=null,showOther=false;
+const $=id=>document.getElementById(id);
+$("t").innerHTML=Object.entries(TYPES).map(([k,v])=>`<option value="${k}">${v[1].replace(/s$/,"")}</option>`).join("");
+const api=(p,m="GET",b)=>fetch("/api/"+p,{method:m,headers:{"Content-Type":"application/json"},body:b?JSON.stringify(b):undefined}).then(r=>r.json());
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function load(){
+  const r=await api("devices");data=r.devices;const s=r.scan;
+  $("prog").style.width=s.running?Math.min(100,s.progress/2.54)+"%":"0";
+  $("scanBtn").disabled=s.running;$("scanBtn").textContent=s.running?"Scanning…":"Scan network";
+  const on=data.filter(d=>d.online).length;
+  $("status").textContent=s.error?"Scan error: "+s.error:`${on} online of ${data.length} devices`+(s.last?` · last scan ${new Date(s.last*1000).toLocaleTimeString()}`:"");
+  render();
+}
+function render(){
+  const counts={};data.forEach(d=>counts[d.type]=(counts[d.type]||0)+1);
+  $("tabs").innerHTML=[["all","All"],...Object.entries(TYPES).filter(([k])=>counts[k]).map(([k,v])=>[k,v[1]])]
+    .map(([k,l])=>`<button class="tab ${filter===k?"on":""}" data-f="${k}">${l}${k==="all"?"":" "+counts[k]}</button>`).join("");
+  let list=data.filter(d=>!d.hidden&&(filter==="all"||d.type===filter));
+  list.sort((a,b)=>(b.online-a.online)||a.ip.localeCompare(b.ip,undefined,{numeric:true}));
+  $("grid").innerHTML=list.map(card).join("")||`<div class="empty">No devices yet. Press <b>Scan network</b> or add one manually.</div>`;
+}
+function feed(d){
+  if(d.type!=="camera")return"";
+  if(/^https?:/.test(d.stream))return`<img class="feed" data-src="${esc(d.stream)}" src="${esc(d.stream)}" alt="Live view of ${esc(d.name)}">`;
+  if(d.stream)return`<div class="note">RTSP streams don't play in browsers.<br>Open in VLC:<br>${esc(d.stream)}</div>`;
+  return`<div class="note">No stream set. Use Edit to add the camera's URL.</div>`;
+}
+function card(d){
+  const t=TYPES[d.type]||TYPES.other;
+  const web=d.ports&&(d.ports.includes(80)||d.ports.includes(8080)||d.ports.includes(443))||d.manual;
+  const url=d.ports&&d.ports.includes(443)&&!d.ports.includes(80)?"https://"+d.ip:"http://"+d.ip+(d.ports&&!d.ports.includes(80)&&d.ports.includes(8080)?":8080":"");
+  return`<div class="card ${d.type==="camera"?"cam":""}"><div class="top"><div class="ico">${t[0]}</div>
+  <div style="min-width:0"><div class="name">${esc(d.name)}</div><div class="meta">${esc(d.ip)}${d.vendor?" · "+esc(d.vendor):""}</div></div>
+  <span class="dot ${d.online?"on":""}" title="${d.online?"Online":"Offline"}"></span></div>
+  ${feed(d)}
+  ${d.ports&&d.ports.length?`<div class="chips">${d.ports.map(p=>`<span>${p}</span>`).join("")}</div>`:""}
+  ${d.mac?`<div class="meta">${esc(d.mac)}</div>`:""}
+  <div class="acts">${web?`<a href="${url}" target="_blank" rel="noopener">Open web page</a>`:"<span style='margin-right:auto'></span>"}
+  <button data-e="${esc(d.id)}">Edit</button><button data-x="${esc(d.id)}">Remove</button></div></div>`;
+}
+function openDlg(d){
+  editId=d?d.id:null;$("dt").textContent=d?"Edit device":"Add device";
+  $("n").value=d?.name||"";$("ip").value=d?.ip||"";$("t").value=d?.type||"other";$("s").value=d?.stream||"";
+  $("sl").style.display=$("t").value==="camera"?"block":"none";$("dlg").showModal();
+}
+$("t").onchange=()=>$("sl").style.display=$("t").value==="camera"?"block":"none";
+$("add").onclick=()=>openDlg();
+$("cancel").onclick=()=>$("dlg").close();
+$("save").onclick=async()=>{
+  const b={name:$("n").value.trim(),ip:$("ip").value.trim(),type:$("t").value,stream:$("s").value.trim()};
+  if(!b.ip){$("ip").focus();return}
+  editId?await api("devices/"+editId,"PUT",b):await api("devices","POST",b);
+  $("dlg").close();load();
+};
+$("scanBtn").onclick=async()=>{await api("scan","POST");$("scanBtn").disabled=true;load()};
+document.addEventListener("click",async e=>{
+  const t=e.target;
+  if(t.dataset.f){filter=t.dataset.f;render()}
+  if(t.dataset.e)openDlg(data.find(d=>d.id===t.dataset.e));
+  if(t.dataset.x&&confirm("Remove this device from the dashboard? A later scan can find it again.")){await api("devices/"+t.dataset.x,"DELETE");load()}
+});
+// Snapshot-style cameras: refresh image every 2 s so they also work with single-JPEG URLs
+setInterval(()=>document.querySelectorAll("img.feed").forEach(i=>{if(/snap|jpg|jpeg/i.test(i.dataset.src))i.src=i.dataset.src+(i.dataset.src.includes("?")?"&":"?")+"t="+Date.now()}),2000);
+load();setInterval(load,5000);
+</script>
+</body>
+</html>
